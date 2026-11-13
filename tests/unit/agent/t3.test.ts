@@ -40,20 +40,20 @@ describe('T3 backend', () => {
   });
   it('creates a visible T3 thread and emits persistent identity and final output', async () => {
     const f = fixture();
-    const run = f.adapter.run({ runId: 'bridge-run', cwd: process.cwd(), prompt: 'test', sandbox: 'danger-full-access' });
+    const run = f.adapter.run({ runId: 'bridge-run', cwd: process.cwd(), prompt: 'test', images: ['/cache/image.png'], sandbox: 'danger-full-access' });
     const output = await drain(run.events);
-    expect(f.call).toHaveBeenCalledWith('t3_thread_launch', expect.objectContaining({ runtimeMode: 'auto', interactionMode: 'default', projectId: 'project', clientRequestId: 'bridge-run' }));
+    expect(f.call).toHaveBeenCalledWith('t3_thread_launch', expect.objectContaining({ runtimeMode: 'auto', interactionMode: 'default', projectId: 'project', attachments: [expect.objectContaining({ id: 'image' })], clientRequestId: 'bridge-run' }));
     expect(output).toContainEqual({ type: 'system', threadId: 't3-thread', cwd: process.cwd() });
     expect(output).toContainEqual({ type: 'final_text', content: 'hello' });
     expect(output.at(-1)).toMatchObject({ type: 'done', terminationReason: 'normal' });
     expect(await run.waitForExit(1)).toBe(true);
     expect(f.close).toHaveBeenCalledOnce();
   });
-  it('continues the same thread and uploads images on resumed runs', async () => {
+  it('continues the same thread and supplies cached image paths in its queued turn', async () => {
     const f = fixture();
     await drain(f.adapter.run({ runId: 'r', cwd: process.cwd(), prompt: 'next', threadId: 'existing-t3', images: ['/cache/image.png'] }).events);
-    expect(f.upload).toHaveBeenCalledWith('/cache/image.png');
-    expect(f.call).toHaveBeenCalledWith('t3_thread_send_attachments', expect.objectContaining({ threadId: 'existing-t3', attachments: [expect.objectContaining({ id: 'image' })] }));
+    expect(f.upload).not.toHaveBeenCalled();
+    expect(f.call).toHaveBeenCalledWith('t3_thread_send', expect.objectContaining({ threadId: 'existing-t3', mode: 'queue', message: expect.stringContaining('/cache/image.png') }));
     expect(f.call.mock.calls.some(([name]) => name === 't3_thread_launch')).toBe(false);
   });
   it('rejects resumed threads whose directory or permission mode changed in T3', async () => {
@@ -79,16 +79,23 @@ describe('T3 backend', () => {
     f.call.mockImplementation(async () => ({ thread: {}, recentRuns: [{ runId: 't3-run', status: 'cancelled' }], items: [], hasMore: false, nextPosition: null }));
     await drain({ [Symbol.asyncIterator]: () => iterator });
   });
-  it('waits before sending images to a busy T3 thread and cancels locally while waiting', async () => {
-    const f = fixture('running');
+  it('queues images independently while a UI task runs, never acquiring its run id', async () => {
+    const f = fixture('queued');
+    const original = f.call.getMockImplementation()!;
+    f.call.mockImplementation(async (name, args) => {
+      const result = await original(name, args) as any;
+      if (name === 't3_thread_read') result.thread.activeRunId = 'ui-run';
+      return result;
+    });
     const run = f.adapter.run({ runId: 'r', cwd: process.cwd(), prompt: 'image', threadId: 'existing-t3', images: ['/cache/image.png'] });
     const iterator = run.events[Symbol.asyncIterator]();
-    expect((await iterator.next()).value).toMatchObject({ type: 'text', delta: expect.stringContaining('等待') });
-    await run.stop();
-    const rest = await drain({ [Symbol.asyncIterator]: () => iterator });
-    expect(rest.at(-1)).toMatchObject({ type: 'done', terminationReason: 'interrupted' });
+    expect((await iterator.next()).value).toMatchObject({ type: 'system' });
     expect(f.upload).not.toHaveBeenCalled();
-    expect(f.call.mock.calls.some(([name]) => name === 't3_thread_interrupt' || name === 't3_thread_send_attachments')).toBe(false);
+    expect(f.call).toHaveBeenCalledWith('t3_thread_send', expect.objectContaining({ mode: 'queue', message: expect.stringContaining('/cache/image.png') }));
+    await run.stop();
+    expect(f.call).toHaveBeenCalledWith('t3_queue', { action: 'cancel', threadId: 'existing-t3', queuedRunId: 't3-run' });
+    expect(f.call.mock.calls.some(([name]) => name === 't3_thread_send_attachments' || name === 't3_thread_interrupt')).toBe(false);
+    await iterator.return?.();
   });
   it('returns a native proposed plan as its final output', async () => {
     const f = fixture();

@@ -12,7 +12,7 @@ describe.skipIf(!process.env.LARK_T3_LIVE)('T3 host integration', () => {
     });
     const cwd = process.env.LARK_T3_CWD!;
     const events: AgentEvent[] = [];
-    for await (const event of adapter.run({ runId: `bridge-live-${Date.now()}`, cwd, prompt: '这是飞书 Bridge 接入自测。不要使用工具、创建文件或联系任何人。只回复 BRIDGE_T3_FIRST_OK。', sandbox: 'workspace-write' }).events) events.push(event);
+    for await (const event of adapter.run({ runId: `bridge-live-${Date.now()}`, cwd, images: process.env.LARK_T3_IMAGE ? [process.env.LARK_T3_IMAGE] : undefined, prompt: '这是飞书 Bridge 接入自测。不要使用工具、创建文件或联系任何人。只回复 BRIDGE_T3_FIRST_OK。', sandbox: 'workspace-write' }).events) events.push(event);
     await writeFile('/private/tmp/lark-t3-live-result.json', JSON.stringify(events, null, 2));
     expect(events.at(-1)?.type).toBe('done');
     const system = events.find((event) => event.type === 'system');
@@ -24,7 +24,7 @@ describe.skipIf(!process.env.LARK_T3_LIVE)('T3 host integration', () => {
     expect(resumed.find((event) => event.type === 'final_text')).toMatchObject({ content: expect.stringContaining('RESUME_OK') });
     if (process.env.LARK_T3_IMAGE) {
       const imageEvents: AgentEvent[] = [];
-      for await (const event of adapter.run({ runId: `bridge-image-${Date.now()}`, cwd, threadId: system.threadId, images: [process.env.LARK_T3_IMAGE], prompt: '图片输入自测。不要调用工具。看到图片后只回复 IMAGE_OK 和图片主色。', sandbox: 'workspace-write' }).events) imageEvents.push(event);
+      for await (const event of adapter.run({ runId: `bridge-image-${Date.now()}`, cwd, threadId: system.threadId, images: [process.env.LARK_T3_IMAGE], prompt: '图片输入自测。用图片读取工具查看输入的缓存图片，只回复 IMAGE_OK 和图片主色。不要修改文件或联系任何人。', sandbox: 'workspace-write' }).events) imageEvents.push(event);
       expect(imageEvents.at(-1)?.type).toBe('done');
       expect(imageEvents.find((event) => event.type === 'final_text')).toMatchObject({ content: expect.stringContaining('IMAGE_OK') });
       const stopRun = adapter.run({ runId: `bridge-stop-${Date.now()}`, cwd, threadId: system.threadId, prompt: '停止按钮自测。不要使用工具。列出 1 到 2000 的整数。', sandbox: 'workspace-write' });

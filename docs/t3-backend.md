@@ -35,11 +35,11 @@ The existing run policy selects the permission mode: full → T3 `auto`, workspa
 
 ## Behavior
 
-The Bridge retains access checks, directory selection, queues, cards, local file cache and file paths in prompts. Images additionally use native T3 upload/attachments (up to 8 per T3 turn, 10 MiB each). Unsupported images or upload failures fail the turn; they are not silently dropped. The Bridge does not grant additional T3 file or settings scopes.
+The Bridge retains access checks, directory selection, queues, cards, local file cache and file paths in prompts. Images on new threads use native T3 upload/attachments (up to 8 per T3 turn, 10 MiB each). On resumed threads the existing local image-cache paths are explicitly passed for the agent’s image-reading tool, using an independent queued text turn. These resumed inputs do not create native T3 image thumbnails. Unsupported images or upload failures fail the turn; they are not silently dropped. The Bridge does not grant additional T3 file or settings scopes.
 
 The selected exact directory is a T3 project. If absent, the official host `t3 project add <cwd>` registers that directory; this avoids granting persistent settings/source-control write permission to the MCP client. The configured CLI must belong to the same local T3 installation as `runtimeFile`. Existing T3 projects/settings are not edited.
 
-Images on a resumed busy thread wait for prior turns to finish because 0.1.9 attachment sends use auto/steer. Cancelling during that wait does not interrupt the existing T3 task. Text queued turns are cancelled through the T3 queue API.
+T3 0.1.9 attachment-send is never used for resumed turns: it uses auto/steer and cannot guarantee an independent run. Both text and cached-image turns use the queue API and cancellation targets only that queued run.
 
 Messages launch a visible `飞书 · …` thread, then queue subsequent messages onto the same thread. The session catalog keys include `t3`, chat/topic, canonical directory and policy fingerprint, so Codex IDs are never reused. `/new` archives the current mapping. `/resume` only offers the current authorized mapping, not arbitrary T3 history. A restart retains mappings; a message queues behind an existing T3 turn. `/stop` targets the Bridge's run; after restart it stops the mapped T3 thread, including its queue. T3 app messages remain in the same thread and are available to the next Bridge turn.
 

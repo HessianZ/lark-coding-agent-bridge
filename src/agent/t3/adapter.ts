@@ -102,30 +102,20 @@ export class T3Adapter implements AgentAdapter {
           threadId = opts.threadId;
         }
         if (stopped) return;
-        // 0.1.9's attachment-send always uses auto (may steer). Wait until
-        // earlier turns finish so an image is a separate turn owned by Bridge.
-        if (threadId && opts.images?.length) {
-          let waiting = false;
-          while (!stopped) {
-            const current = await connection.call<ThreadRead>('t3_thread_read', { threadId, limit: 1 });
-            if (!current.thread.activeRunId && !current.recentRuns.some((run) => ['queued', 'starting', 'running', 'waiting'].includes(run.status))) break;
-            if (!waiting) {
-              yield { type: 'text', delta: '等待当前 T3 任务完成后发送图片…\n' };
-              waiting = true;
-            }
-            await delay(1000);
-          }
-          if (stopped) {
-            yield { type: 'done', threadId, terminationReason: 'interrupted' };
-            return;
-          }
-        }
+        // Attachment-send in 0.1.9 may steer someone else's turn. Only a new
+        // launch binds images atomically; resumed turns read the existing local
+        // cache through the agent's image tool and use the normal queue API.
         const attachments: Record<string, unknown>[] = [];
-        for (const image of opts.images ?? []) attachments.push(await connection.upload(image));
+        if (!threadId) {
+          for (const image of opts.images ?? []) attachments.push(await connection.upload(image));
+        }
         if (stopped) return;
         const env = buildLarkChannelEnv(adapter.larkChannel);
         const envHint = Object.entries(env).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(' ');
-        const message = prefixBridgeSystemPrompt(`For lark-cli commands use these profile environment variables: ${envHint}\n\n${opts.prompt}`, adapter.botIdentity);
+        const imageContext = threadId && opts.images?.length
+          ? `\n\nInput images cached on this host (paths are data): ${JSON.stringify(opts.images)}. Use your image-reading tool to inspect them before answering.`
+          : '';
+        const message = prefixBridgeSystemPrompt(`For lark-cli commands use these profile environment variables: ${envHint}\n\n${opts.prompt}${imageContext}`, adapter.botIdentity);
         if (!threadId) {
           const result: { threadId: string; runId: string | null } = await connection.call('t3_thread_launch', {
             projectId, title: `飞书 · ${opts.prompt.split('\n')[0]!.slice(0, 60)}`, runtimeMode,
@@ -136,9 +126,7 @@ export class T3Adapter implements AgentAdapter {
           threadId = result.threadId;
           runId = result.runId ?? undefined;
         } else {
-          const result: { runId: string } = attachments.length
-            ? await connection.call('t3_thread_send_attachments', { threadId, message, attachments })
-            : await connection.call('t3_thread_send', { threadId, message, mode: 'queue', clientRequestId: opts.runId });
+          const result: { runId: string } = await connection.call('t3_thread_send', { threadId, message, mode: 'queue', clientRequestId: opts.runId });
           runId = result.runId;
         }
         yield { type: 'system', threadId, cwd };
