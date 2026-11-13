@@ -41,6 +41,8 @@ The selected exact directory is a T3 project. If absent, the official host `t3 p
 
 T3 0.1.9 attachment-send is never used for resumed turns: it uses auto/steer and cannot guarantee an independent run. Both text and cached-image turns use the queue API and cancellation targets only that queued run.
 
+T3 messages begin with the original Feishu text. Routing context, quotes/cards, attachment metadata and bridge instructions follow it. New thread titles use the first line of that text.
+
 Messages launch a visible `飞书 · …` thread, then queue subsequent messages onto the same thread. The session catalog keys include `t3`, chat/topic, canonical directory and policy fingerprint, so Codex IDs are never reused. `/new` archives the current mapping. `/resume` only offers the current authorized mapping, not arbitrary T3 history. A restart retains mappings; a message queues behind an existing T3 turn. `/stop` targets the Bridge's run; after restart it stops the mapped T3 thread, including its queue. T3 app messages remain in the same thread and are available to the next Bridge turn.
 
 Responses stream from T3's assistant messages and proposed plans, then finalize through the existing renderer. Tool panel detail is not translated in this version. When T3 needs user input, the Bridge asks the user to respond in T3. It never interprets a question as completion.

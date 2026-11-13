@@ -17,3 +17,5 @@ Compatibility: adds `t3` to profile, lock/registry and session-catalog agent kin
 Verification results and deployment evidence are recorded after validation; private installation paths/backups remain in the local deployment record.
 
 First PMQA review found six issues (configuration serialization, queued cancellation, image steering, proposed-plan rendering, interaction-mode validation and reset recovery). All six have targeted regression coverage and are fixed in the follow-up commit. The initial pre-switch build was not activated.
+
+Follow-up: show the original Feishu text first in T3, move routing/system context after it, and derive new thread titles from the text. This changes only T3 presentation; preserve original context, quotes/cards, file paths, identity and permissions. Verify prompt layout/round-trip data, adapter launch title and queue payload, then install while the same bot is idle.

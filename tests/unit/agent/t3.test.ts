@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { buildAgentPrompt } from '../../../src/agent/prompt';
 import { T3Adapter } from '../../../src/agent/t3/adapter';
 import { createDefaultProfileConfig } from '../../../src/config/profile-schema';
 import { profileCapability } from '../../../src/agent/capability';
@@ -48,6 +49,18 @@ describe('T3 backend', () => {
     expect(output.at(-1)).toMatchObject({ type: 'done', terminationReason: 'normal' });
     expect(await run.waitForExit(1)).toBe(true);
     expect(f.close).toHaveBeenCalledOnce();
+  });
+  it('sends the original Feishu text first on both launch and continuation', async () => {
+    const f = fixture();
+    const prompt = (text: string) => buildAgentPrompt({ context: { chatId: 'oc_dm', chatType: 'p2p', senderId: 'ou_owner', source: 'im' }, userInput: text });
+    await drain(f.adapter.run({ runId: 'r1', cwd: process.cwd(), prompt: prompt('检查当前项目') }).events);
+    const launch = f.call.mock.calls.find(([name]) => name === 't3_thread_launch')![1];
+    expect(launch.title).toBe('飞书 · 检查当前项目');
+    expect(String(launch.message).startsWith('检查当前项目\n\n---')).toBe(true);
+    await drain(f.adapter.run({ runId: 'r2', cwd: process.cwd(), threadId: 't3-thread', prompt: prompt('继续上一条') }).events);
+    const send = f.call.mock.calls.find(([name]) => name === 't3_thread_send')![1];
+    expect(String(send.message).startsWith('继续上一条\n\n---')).toBe(true);
+    expect(send.mode).toBe('queue');
   });
   it('continues the same thread and supplies cached image paths in its queued turn', async () => {
     const f = fixture();

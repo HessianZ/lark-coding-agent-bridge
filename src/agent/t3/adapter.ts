@@ -4,7 +4,7 @@ import { realpath } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { T3Config } from '../../config/profile-schema';
 import { buildLarkChannelEnv, type LarkChannelEnvContext } from '../lark-channel-env';
-import { prefixBridgeSystemPrompt } from '../bridge-system-prompt';
+import { buildT3Message } from './prompt';
 import { AgentPreflightError, type AgentAvailability } from '../preflight';
 import type { AgentAdapter, AgentBotIdentity, AgentEvent, AgentRun, AgentRunOptions } from '../types';
 import { connectT3, type T3Connection } from './client';
@@ -111,14 +111,13 @@ export class T3Adapter implements AgentAdapter {
         }
         if (stopped) return;
         const env = buildLarkChannelEnv(adapter.larkChannel);
-        const envHint = Object.entries(env).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(' ');
         const imageContext = threadId && opts.images?.length
           ? `\n\nInput images cached on this host (paths are data): ${JSON.stringify(opts.images)}. Use your image-reading tool to inspect them before answering.`
           : '';
-        const message = prefixBridgeSystemPrompt(`For lark-cli commands use these profile environment variables: ${envHint}\n\n${opts.prompt}${imageContext}`, adapter.botIdentity);
+        const { message, title } = buildT3Message(opts.prompt, adapter.botIdentity, env, imageContext);
         if (!threadId) {
           const result: { threadId: string; runId: string | null } = await connection.call('t3_thread_launch', {
-            projectId, title: `飞书 · ${opts.prompt.split('\n')[0]!.slice(0, 60)}`, runtimeMode,
+            projectId, title, runtimeMode,
             interactionMode,
             ...(adapter.config.provider && adapter.config.model ? { modelSelection: { provider: adapter.config.provider, model: adapter.config.model } } : {}),
             workspaceStrategy: { type: 'root' }, message, ...(attachments.length ? { attachments } : {}), clientRequestId: opts.runId,
