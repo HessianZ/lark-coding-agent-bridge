@@ -31,7 +31,7 @@ Set the original profile's `agentKind` to `t3` and add:
 
 Alternatively use an HTTPS/loopback `endpoint` ending in `/mcp` instead of `runtimeFile`. The runtime file discovers changing local ports. The environment ID is checked on every connection. Keep access lists, bot credentials, workspaces and other profiles unchanged. T3 configuration supplies the model; the Bridge `/config` model selector stays on T3's configured model.
 
-The existing run policy selects the permission mode: full → T3 `auto`, workspace → `auto-accept-edits`, read-only → supervised `approval-required` with `plan` interaction. These are T3 permission modes, not a claim of Codex OS sandbox equivalence. Pending approvals/questions must be answered in T3. Resuming a thread whose permission mode or project was changed in T3 is rejected; `/new` starts with the Bridge policy again.
+The existing run policy selects the permission mode: full → T3 `auto`, workspace → `auto-accept-edits`, read-only → supervised `approval-required` with `plan` interaction. These are T3 permission modes, not a claim of Codex OS sandbox equivalence. Pending approvals/questions must be answered in T3. Resuming a thread whose permission/interaction mode or project was changed in T3 is rejected; `/new` starts with the Bridge policy again.
 
 ## Behavior
 
@@ -39,9 +39,11 @@ The Bridge retains access checks, directory selection, queues, cards, local file
 
 The selected exact directory is a T3 project. If absent, the official host `t3 project add <cwd>` registers that directory; this avoids granting persistent settings/source-control write permission to the MCP client. The configured CLI must belong to the same local T3 installation as `runtimeFile`. Existing T3 projects/settings are not edited.
 
+Images on a resumed busy thread wait for prior turns to finish because 0.1.9 attachment sends use auto/steer. Cancelling during that wait does not interrupt the existing T3 task. Text queued turns are cancelled through the T3 queue API.
+
 Messages launch a visible `飞书 · …` thread, then queue subsequent messages onto the same thread. The session catalog keys include `t3`, chat/topic, canonical directory and policy fingerprint, so Codex IDs are never reused. `/new` archives the current mapping. `/resume` only offers the current authorized mapping, not arbitrary T3 history. A restart retains mappings; a message queues behind an existing T3 turn. `/stop` targets the Bridge's run; after restart it stops the mapped T3 thread, including its queue. T3 app messages remain in the same thread and are available to the next Bridge turn.
 
-Responses stream from T3's assistant messages, then finalize through the existing renderer. Tool panel detail is not translated in this version. When T3 needs user input, the Bridge asks the user to respond in T3. It never interprets a question as completion.
+Responses stream from T3's assistant messages and proposed plans, then finalize through the existing renderer. Tool panel detail is not translated in this version. When T3 needs user input, the Bridge asks the user to respond in T3. It never interprets a question as completion.
 
 ## Build and validate
 

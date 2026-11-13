@@ -15,9 +15,9 @@ function fixture(status = 'completed') {
     if (name === 't3_project_list') return { projects: [{ id: 'project', workspaceRoot: process.cwd() }], nextCursor: null };
     if (name === 't3_thread_launch') return { threadId: 't3-thread', runId: 't3-run' };
     if (name === 't3_thread_send' || name === 't3_thread_send_attachments') return { runId: 't3-run' };
-    if (name === 't3_thread_interrupt') return { status: 'interrupt_requested' };
+    if (name === 't3_thread_interrupt' || name === 't3_queue') return { status: 'interrupt_requested' };
     if (name === 't3_thread_read') return {
-      thread: { projectId: 'project', worktreePath: null, activeRunId: null, runtimeMode: 'auto' },
+      thread: { projectId: 'project', worktreePath: null, activeRunId: null, runtimeMode: 'auto', interactionMode: 'default' },
       recentRuns: [{ runId: 't3-run', status }],
       items: [{ itemId: 'answer', runId: 't3-run', type: 'assistant_message', createdBy: 'agent', text: 'hello', textTruncated: false }],
       hasMore: false, nextPosition: null,
@@ -42,7 +42,7 @@ describe('T3 backend', () => {
     const f = fixture();
     const run = f.adapter.run({ runId: 'bridge-run', cwd: process.cwd(), prompt: 'test', sandbox: 'danger-full-access' });
     const output = await drain(run.events);
-    expect(f.call).toHaveBeenCalledWith('t3_thread_launch', expect.objectContaining({ runtimeMode: 'auto', projectId: 'project', clientRequestId: 'bridge-run' }));
+    expect(f.call).toHaveBeenCalledWith('t3_thread_launch', expect.objectContaining({ runtimeMode: 'auto', interactionMode: 'default', projectId: 'project', clientRequestId: 'bridge-run' }));
     expect(output).toContainEqual({ type: 'system', threadId: 't3-thread', cwd: process.cwd() });
     expect(output).toContainEqual({ type: 'final_text', content: 'hello' });
     expect(output.at(-1)).toMatchObject({ type: 'done', terminationReason: 'normal' });
@@ -67,6 +67,50 @@ describe('T3 backend', () => {
     await f.adapter.stopThread('persisted-t3');
     expect(f.call).toHaveBeenCalledWith('t3_thread_interrupt', { threadId: 'persisted-t3', stop: true });
     expect(f.close).toHaveBeenCalledOnce();
+  });
+  it('cancels its queued turn without interrupting the active UI turn', async () => {
+    const f = fixture('queued');
+    const run = f.adapter.run({ runId: 'r', cwd: process.cwd(), prompt: 'test', threadId: 'existing-t3' });
+    const iterator = run.events[Symbol.asyncIterator]();
+    await iterator.next();
+    await run.stop();
+    expect(f.call).toHaveBeenCalledWith('t3_queue', { action: 'cancel', threadId: 'existing-t3', queuedRunId: 't3-run' });
+    expect(f.call.mock.calls.some(([name]) => name === 't3_thread_interrupt')).toBe(false);
+    f.call.mockImplementation(async () => ({ thread: {}, recentRuns: [{ runId: 't3-run', status: 'cancelled' }], items: [], hasMore: false, nextPosition: null }));
+    await drain({ [Symbol.asyncIterator]: () => iterator });
+  });
+  it('waits before sending images to a busy T3 thread and cancels locally while waiting', async () => {
+    const f = fixture('running');
+    const run = f.adapter.run({ runId: 'r', cwd: process.cwd(), prompt: 'image', threadId: 'existing-t3', images: ['/cache/image.png'] });
+    const iterator = run.events[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toMatchObject({ type: 'text', delta: expect.stringContaining('等待') });
+    await run.stop();
+    const rest = await drain({ [Symbol.asyncIterator]: () => iterator });
+    expect(rest.at(-1)).toMatchObject({ type: 'done', terminationReason: 'interrupted' });
+    expect(f.upload).not.toHaveBeenCalled();
+    expect(f.call.mock.calls.some(([name]) => name === 't3_thread_interrupt' || name === 't3_thread_send_attachments')).toBe(false);
+  });
+  it('returns a native proposed plan as its final output', async () => {
+    const f = fixture();
+    const original = f.call.getMockImplementation()!;
+    f.call.mockImplementation(async (name, args) => {
+      const result = await original(name, args) as any;
+      if (name === 't3_thread_read') result.items[0].type = 'proposed_plan';
+      return result;
+    });
+    const events = await drain(f.adapter.run({ runId: 'r', cwd: process.cwd(), prompt: 'test' }).events);
+    expect(events).toContainEqual({ type: 'final_text', content: 'hello' });
+  });
+  it('rejects an interaction mode changed in the T3 app', async () => {
+    const f = fixture();
+    const original = f.call.getMockImplementation()!;
+    f.call.mockImplementation(async (name, args) => {
+      const result = await original(name, args) as any;
+      if (name === 't3_thread_read') result.thread.runtimeMode = 'approval-required';
+      return result;
+    });
+    const events = await drain(f.adapter.run({ runId: 'r', cwd: process.cwd(), threadId: 'old', prompt: 'test', sandbox: 'read-only' }).events);
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('permission mode changed') });
   });
   it('reports failures and closes the MCP connection', async () => {
     const f = fixture('failed');

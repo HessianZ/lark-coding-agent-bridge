@@ -27,6 +27,20 @@ async function tmpRoot(): Promise<string> {
 }
 
 describe('profile store canonical serialization', () => {
+  it('preserves T3 config when saving and updating another profile', async () => {
+    const directory = await tmpRoot();
+    const path = join(directory, 'config.json');
+    const t3 = { runtimeFile: '/host/runtime.json', tokenFile: '/private/oauth.json', environmentId: 'host' };
+    const config = createRootConfig('bridge', createDefaultProfileConfig({ agentKind: 't3', t3, accounts: { app } }));
+    config.profiles.other = createDefaultProfileConfig({ agentKind: 'claude', accounts: { app: { ...app, id: 'other' } } });
+    await saveRootConfig(config, path);
+    const loaded = (await loadRootConfig(path))!;
+    expect(loaded.profiles.bridge?.t3).toEqual(t3);
+    loaded.profiles.other!.preferences.messageReply = 'text';
+    await saveRootConfig(loaded, path);
+    expect((await loadRootConfig(path))?.profiles.bridge?.t3).toEqual(t3);
+  });
+
   it('saves stored root and profile config without unknown root fields or runtime-only profile fields', async () => {
     const root = await tmpRoot();
     const configPath = join(root, 'config.json');

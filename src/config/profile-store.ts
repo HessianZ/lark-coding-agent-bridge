@@ -56,6 +56,7 @@ type StoredProfileConfig = Pick<
   | 'access'
   | 'workspaces'
   | 'permissions'
+  | 't3'
   | 'codex'
   | 'attachments'
   | 'comments'
@@ -95,6 +96,7 @@ function serializeProfileConfig(profile: ProfileConfig): StoredProfileConfig {
     access: profile.access,
     workspaces: profile.workspaces,
     permissions: profile.permissions,
+    ...(profile.t3 ? { t3: profile.t3 } : {}),
     ...(profile.codex ? { codex: profile.codex } : {}),
     attachments: profile.attachments,
     comments: {},

@@ -15,3 +15,5 @@ Protected assets: original bot credentials, user/chat access policy, other profi
 Compatibility: adds `t3` to profile, lock/registry and session-catalog agent kinds; preserves old namespaces and profile fields. Runtime maps policy to T3 permission modes and rejects changed remote mode/project. Queue/card transport is reused. The public adapter optionally supports remote stop after restart. No stable/main branch integration is requested.
 
 Verification results and deployment evidence are recorded after validation; private installation paths/backups remain in the local deployment record.
+
+First PMQA review found six issues (configuration serialization, queued cancellation, image steering, proposed-plan rendering, interaction-mode validation and reset recovery). All six have targeted regression coverage and are fixed in the follow-up commit. The initial pre-switch build was not activated.

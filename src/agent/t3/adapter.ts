@@ -10,7 +10,7 @@ import type { AgentAdapter, AgentBotIdentity, AgentEvent, AgentRun, AgentRunOpti
 import { connectT3, type T3Connection } from './client';
 
 interface ThreadRead {
-  thread: { projectId: string; worktreePath: string | null; activeRunId: string | null; runtimeMode: string };
+  thread: { projectId: string; worktreePath: string | null; activeRunId: string | null; runtimeMode: string; interactionMode: string };
   recentRuns: Array<{ runId: string; status: string }>;
   items: Array<{ itemId: string; runId: string | null; type: string; createdBy: string | null; text: string | null; textTruncated: boolean; nextTextOffset?: number | null; position: number }>;
   hasMore: boolean;
@@ -64,7 +64,12 @@ export class T3Adapter implements AgentAdapter {
     const interrupt = async (): Promise<void> => {
       if (connection && threadId && runId) {
         // Target only the bridge's own turn, never an unrelated turn started in T3.
-        await connection.call('t3_thread_interrupt', { threadId, runId, clientRequestId: `${opts.runId}:stop` });
+        const current = await connection.call<ThreadRead>('t3_thread_read', { threadId, limit: 1, runLimit: 50 });
+        if (current.recentRuns.find((run) => run.runId === runId)?.status === 'queued') {
+          await connection.call('t3_queue', { action: 'cancel', threadId, queuedRunId: runId });
+        } else {
+          await connection.call('t3_thread_interrupt', { threadId, runId, clientRequestId: `${opts.runId}:stop` });
+        }
       }
     };
     const events = async function* (adapter: T3Adapter): AsyncGenerator<AgentEvent> {
@@ -88,14 +93,33 @@ export class T3Adapter implements AgentAdapter {
           if (!projectId) throw new Error('T3 project registration did not return the selected directory');
         }
         const runtimeMode = opts.sandbox === 'read-only' ? 'approval-required' : opts.sandbox === 'workspace-write' ? 'auto-accept-edits' : 'auto';
+        const interactionMode = opts.sandbox === 'read-only' ? 'plan' : 'default';
         if (opts.threadId) {
           const previous = await connection.call<ThreadRead>('t3_thread_read', { threadId: opts.threadId, limit: 1 });
-          if (previous.thread.projectId !== projectId || previous.thread.worktreePath || previous.thread.runtimeMode !== runtimeMode) {
+          if (previous.thread.projectId !== projectId || previous.thread.worktreePath || previous.thread.runtimeMode !== runtimeMode || previous.thread.interactionMode !== interactionMode) {
             throw new Error('T3 thread workspace or permission mode changed; use /new');
           }
           threadId = opts.threadId;
         }
         if (stopped) return;
+        // 0.1.9's attachment-send always uses auto (may steer). Wait until
+        // earlier turns finish so an image is a separate turn owned by Bridge.
+        if (threadId && opts.images?.length) {
+          let waiting = false;
+          while (!stopped) {
+            const current = await connection.call<ThreadRead>('t3_thread_read', { threadId, limit: 1 });
+            if (!current.thread.activeRunId && !current.recentRuns.some((run) => ['queued', 'starting', 'running', 'waiting'].includes(run.status))) break;
+            if (!waiting) {
+              yield { type: 'text', delta: '等待当前 T3 任务完成后发送图片…\n' };
+              waiting = true;
+            }
+            await delay(1000);
+          }
+          if (stopped) {
+            yield { type: 'done', threadId, terminationReason: 'interrupted' };
+            return;
+          }
+        }
         const attachments: Record<string, unknown>[] = [];
         for (const image of opts.images ?? []) attachments.push(await connection.upload(image));
         if (stopped) return;
@@ -105,7 +129,7 @@ export class T3Adapter implements AgentAdapter {
         if (!threadId) {
           const result: { threadId: string; runId: string | null } = await connection.call('t3_thread_launch', {
             projectId, title: `飞书 · ${opts.prompt.split('\n')[0]!.slice(0, 60)}`, runtimeMode,
-            interactionMode: opts.sandbox === 'read-only' ? 'plan' : 'default',
+            interactionMode,
             ...(adapter.config.provider && adapter.config.model ? { modelSelection: { provider: adapter.config.provider, model: adapter.config.model } } : {}),
             workspaceStrategy: { type: 'root' }, message, ...(attachments.length ? { attachments } : {}), clientRequestId: opts.runId,
           });
@@ -129,7 +153,7 @@ export class T3Adapter implements AgentAdapter {
             const page = await connection.call<ThreadRead>('t3_thread_read', { threadId, view: 'messages', afterPosition, limit: 100, runLimit: 50, maxCharsPerItem: 50000 });
             status = page.recentRuns.find((run) => run.runId === runId)?.status;
             for (const item of page.items) {
-              if (item.runId !== runId || item.createdBy !== 'agent' || item.type !== 'assistant_message' || !item.text) continue;
+              if (item.runId !== runId || item.createdBy !== 'agent' || !['assistant_message', 'proposed_plan'].includes(item.type) || !item.text) continue;
               let text = item.text;
               let offset = item.nextTextOffset;
               while (item.textTruncated && offset != null) {

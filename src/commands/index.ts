@@ -332,9 +332,16 @@ async function handleNew(args: string, ctx: CommandContext): Promise<void> {
   }
 
   const wasRunning = ctx.activeRuns.interrupt(ctx.scope);
+  let remoteStopFailed = false;
   if (!wasRunning && ctx.agent.stopThread && ctx.sessionCatalogIdentity) {
     const entry = ctx.sessionCatalog?.activeFor(ctx.sessionCatalogIdentity);
-    if (entry?.threadId) await ctx.agent.stopThread(entry.threadId);
+    if (entry?.threadId) {
+      try {
+        await ctx.agent.stopThread(entry.threadId);
+      } catch {
+        remoteStopFailed = true;
+      }
+    }
   }
   if (ctx.sessionCatalog && ctx.sessionCatalogIdentity) {
     ctx.sessionCatalog.archiveActive({
@@ -343,7 +350,7 @@ async function handleNew(args: string, ctx: CommandContext): Promise<void> {
     });
   }
   ctx.sessions.clear(ctx.scope);
-  await reply(ctx, wasRunning ? '已中断当前任务并开始新会话。' : '已开始新会话。');
+  await reply(ctx, remoteStopFailed ? '已开始新会话。原 T3 任务未能停止，请在 T3 检查。' : wasRunning ? '已中断当前任务并开始新会话。' : '已开始新会话。');
 }
 
 async function handleNewChat(rawName: string, ctx: CommandContext): Promise<void> {
