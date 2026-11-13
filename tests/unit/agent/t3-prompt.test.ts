@@ -17,6 +17,8 @@ describe('T3 message presentation', () => {
     expect(result.message).not.toContain('<user_input>\n');
     expect(result.message).not.toContain('每条 user message 顶部');
     expect(result.message).not.toContain('用户的实际问题在它之后');
+    expect(result.message).not.toContain('`user_input` 里每段');
+    expect(result.message).toContain('消息开头的原文里每段');
   });
 
   it('preserves escaped quote/card context and attachment paths without duplicating the request', () => {

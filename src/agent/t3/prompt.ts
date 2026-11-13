@@ -24,7 +24,8 @@ export function buildT3Message(
   const envHint = Object.entries(env).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(' ');
   const instructions = buildBridgeSystemPrompt(identity)
     .replace('每条 user message 顶部会带一个', '每条 user message 后半部分会带一个')
-    .replace('用户的实际问题在它之后。', '用户的实际问题在消息开头。');
+    .replace('用户的实际问题在它之后。', '用户的实际问题在消息开头。')
+    .replace('`user_input` 里每段', '消息开头的原文里每段');
   const metadata = [
     context,
     instructions,
