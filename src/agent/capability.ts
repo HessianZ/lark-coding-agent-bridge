@@ -2,8 +2,8 @@ import type { AccessMode } from '../config/permissions';
 import type { ProfileConfig } from '../config/profile-schema';
 import { BRIDGE_SYSTEM_PROMPT } from './bridge-system-prompt';
 
-export type AgentCapabilityId = 'claude' | 'codex';
-export type AgentSessionKind = 'claude-session' | 'codex-thread';
+export type AgentCapabilityId = 'claude' | 'codex' | 't3';
+export type AgentSessionKind = 'claude-session' | 'codex-thread' | 't3-thread';
 export type PromptInjectionMode = 'append-system-prompt' | 'stdin-prefix';
 
 export interface AgentCapability {
@@ -55,4 +55,12 @@ export function codexCapability(profile: Pick<ProfileConfig, 'permissions'>): Ag
       maxAccess,
     },
   };
+}
+
+export function profileCapability(profile: ProfileConfig): AgentCapability {
+  if (profile.agentKind === 'claude') return claudeCapability(profile);
+  const capability = codexCapability(profile);
+  return profile.agentKind === 't3'
+    ? { ...capability, agentId: 't3', sessionKind: 't3-thread' }
+    : capability;
 }

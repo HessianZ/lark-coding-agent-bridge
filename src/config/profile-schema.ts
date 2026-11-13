@@ -13,7 +13,17 @@ import {
   type PermissionSource,
 } from './permissions';
 
-export type AgentKind = 'claude' | 'codex';
+export type AgentKind = 'claude' | 'codex' | 't3';
+
+export interface T3Config {
+  binaryPath?: string;
+  endpoint?: string;
+  runtimeFile?: string;
+  tokenFile: string;
+  environmentId: string;
+  provider?: string;
+  model?: string;
+}
 export type SandboxMode = CodexSandboxMode;
 export type { AccessMode, PermissionConfig, PermissionSource };
 
@@ -159,6 +169,7 @@ export interface ProfileConfig {
   sandbox: SandboxConfig;
   permissions: PermissionConfig;
   permissionSource?: PermissionSource;
+  t3?: T3Config;
   codex?: CodexConfig;
   attachments: AttachmentConfig;
   comments: CommentConfig;
@@ -203,6 +214,7 @@ export interface CreateDefaultProfileConfigInput {
   access?: Partial<ProfileAccess>;
   sandbox?: Partial<SandboxConfig>;
   permissions?: Partial<PermissionConfig>;
+  t3?: T3Config;
   codex?: CodexConfig;
   secrets?: SecretsConfig;
 }
@@ -238,6 +250,7 @@ export function normalizeProfileConfig(input: unknown): ProfileConfig {
     };
     sandbox?: Partial<SandboxConfig>;
     permissions?: Partial<PermissionConfig>;
+    t3?: T3Config;
     codex?: CodexConfig & { flags?: unknown };
     attachments?: Partial<AttachmentConfig>;
     comments?: unknown;
@@ -248,12 +261,16 @@ export function normalizeProfileConfig(input: unknown): ProfileConfig {
   if (raw.schemaVersion !== 2) {
     throw new Error('profile schemaVersion must be 2');
   }
-  if (raw.agentKind !== 'claude' && raw.agentKind !== 'codex') {
-    throw new Error('agentKind must be claude or codex');
+  if (raw.agentKind !== 'claude' && raw.agentKind !== 'codex' && raw.agentKind !== 't3') {
+    throw new Error('agentKind must be claude, codex or t3');
   }
   const accounts = normalizeAccounts(raw.accounts);
   if (raw.agentKind === 'codex' && !raw.codex) {
     throw new Error('codex profile requires codex configuration');
+  }
+
+  if (raw.agentKind === 't3' && (!raw.t3 || typeof raw.t3.tokenFile !== 'string' || !raw.t3.tokenFile || typeof raw.t3.environmentId !== 'string' || !raw.t3.environmentId || (!raw.t3.endpoint && !raw.t3.runtimeFile))) {
+    throw new Error('t3 profile requires tokenFile, environmentId and endpoint or runtimeFile');
   }
 
   const preferences = normalizePreferences(raw.preferences);
@@ -283,6 +300,7 @@ export function normalizeProfileConfig(input: unknown): ProfileConfig {
     sandbox,
     permissions,
     permissionSource,
+    ...(raw.t3 ? { t3: raw.t3 } : {}),
     ...(raw.codex ? { codex: normalizeCodex(raw.codex) } : {}),
     attachments: {
       maxCount: numberOr(raw.attachments?.maxCount, 10),

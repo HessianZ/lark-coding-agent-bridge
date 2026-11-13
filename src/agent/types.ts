@@ -83,6 +83,8 @@ export interface AgentAdapter {
   checkAvailability?(): Promise<AgentAvailability>;
   prepareRun?(opts: AgentRunOptions): Promise<void>;
   run(opts: AgentRunOptions): AgentRun;
+  /** Stop a persisted remote thread after a bridge restart. */
+  stopThread?(threadId: string): Promise<void>;
   /**
    * Late-bound identity injection: the adapter is constructed before the
    * channel connects, so the channel calls this once botIdentity is known.

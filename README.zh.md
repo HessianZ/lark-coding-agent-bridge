@@ -354,3 +354,7 @@ export default createAdapter;
 [MIT](./LICENSE)
 
 <img src="./assets/feedback-group-qr.png" alt="飞书反馈群二维码" width="360">
+
+## 此 fork 的 T3 Code 后端
+
+配置、权限、安装与回滚见 [T3 后端说明](docs/t3-backend.md)。

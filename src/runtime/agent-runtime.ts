@@ -1,3 +1,4 @@
+import { T3Adapter } from '../agent/t3/adapter';
 import { ClaudeAdapter } from '../agent/claude/adapter';
 import { CodexAdapter } from '../agent/codex/adapter';
 import { AgentPreflightError, type AgentAvailability } from '../agent/preflight';
@@ -33,6 +34,10 @@ export function createRuntimeAgent(
             : {}),
         }
       : undefined;
+  if (profileConfig.agentKind === 't3') {
+    if (!profileConfig.t3) throw new Error('t3 configuration is required');
+    return new T3Adapter(profileConfig.t3, larkChannel);
+  }
   if (profileConfig.agentKind === 'codex') {
     const codex = profileConfig.codex;
     if (!codex?.binaryPath) {

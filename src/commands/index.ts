@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute } from 'node:path';
 import type { LarkChannel, NormalizedMessage } from '@larksuite/channel';
-import { claudeCapability, codexCapability } from '../agent/capability';
+import { profileCapability } from '../agent/capability';
 import { DEFAULT_MODEL, normalizeModelSelection, supportedModels } from '../agent/models';
 import type { AgentAdapter } from '../agent/types';
 import type { ActiveRuns } from '../bot/active-runs';
@@ -153,7 +153,7 @@ type Handler = (args: string, ctx: CommandContext) => Promise<void>;
 
 interface ResumeCandidate {
   scopeId: string;
-  agentId: 'claude' | 'codex';
+  agentId: 'claude' | 'codex' | 't3';
   cwdRealpath: string;
   policyFingerprint: string;
   sessionId?: string;
@@ -332,6 +332,10 @@ async function handleNew(args: string, ctx: CommandContext): Promise<void> {
   }
 
   const wasRunning = ctx.activeRuns.interrupt(ctx.scope);
+  if (!wasRunning && ctx.agent.stopThread && ctx.sessionCatalogIdentity) {
+    const entry = ctx.sessionCatalog?.activeFor(ctx.sessionCatalogIdentity);
+    if (entry?.threadId) await ctx.agent.stopThread(entry.threadId);
+  }
   if (ctx.sessionCatalog && ctx.sessionCatalogIdentity) {
     ctx.sessionCatalog.archiveActive({
       ...ctx.sessionCatalogIdentity,
@@ -557,6 +561,18 @@ async function handleResume(args: string, ctx: CommandContext): Promise<void> {
     return;
   }
 
+  if (ctx.controls.profileConfig.agentKind === 't3') {
+    const identity = ctx.sessionCatalogIdentity;
+    const entry = identity ? ctx.sessionCatalog?.activeFor(identity) : undefined;
+    if (entry?.threadId && identity) {
+      const nonce = issueResumeCandidate(identity, { threadId: entry.threadId });
+      await reply(ctx, `当前 T3 thread：${entry.threadId}\n使用 \`/resume use ${nonce}\` 恢复（10 分钟内有效）。`);
+    } else {
+      await reply(ctx, '当前目录和权限策略下没有可恢复的 T3 会话。发送消息即可新建。');
+    }
+    return;
+  }
+
   if (ctx.controls.profileConfig.agentKind === 'codex') {
     const identity = ctx.sessionCatalogIdentity;
     const entry =
@@ -615,10 +631,10 @@ async function applyResume(sessionId: string, ctx: CommandContext): Promise<void
     const resolved = consumeResumeCandidate(sessionId, ctx.sessionCatalogIdentity);
     if (resolved) {
       ctx.activeRuns.interrupt(ctx.scope);
-      if (ctx.sessionCatalogIdentity.agentId === 'codex') {
+      if (ctx.sessionCatalogIdentity.agentId !== 'claude') {
         ctx.sessionCatalog.upsertActive({
           scopeId: ctx.sessionCatalogIdentity.scopeId,
-          agentId: 'codex',
+          agentId: ctx.sessionCatalogIdentity.agentId,
           cwdRealpath: ctx.sessionCatalogIdentity.cwdRealpath,
           policyFingerprint: ctx.sessionCatalogIdentity.policyFingerprint,
           threadId: resolved.threadId!,
@@ -636,7 +652,7 @@ async function applyResume(sessionId: string, ctx: CommandContext): Promise<void
       await reply(ctx, RESUME_APPLIED_REPLY);
       return;
     }
-    if (ctx.sessionCatalogIdentity.agentId === 'codex') {
+    if (ctx.sessionCatalogIdentity.agentId !== 'claude') {
       await reply(ctx, '当前上下文不可恢复这个会话，请先用 `/resume` 重新生成恢复候选。');
       return;
     }
@@ -653,8 +669,8 @@ async function applyResume(sessionId: string, ctx: CommandContext): Promise<void
     return;
   }
 
-  if (ctx.controls.profileConfig.agentKind === 'codex') {
-    await reply(ctx, '当前上下文没有可恢复的 Codex thread，请先在当前工作区完成一次运行。');
+  if (ctx.controls.profileConfig.agentKind !== 'claude') {
+    await reply(ctx, `当前上下文没有可恢复的 ${ctx.controls.profileConfig.agentKind === 't3' ? 'T3' : 'Codex'} thread，请先在当前工作区完成一次运行。`);
     return;
   }
 
@@ -700,7 +716,7 @@ function consumeResumeCandidate(
     candidate.cwdRealpath !== identity.cwdRealpath ||
     candidate.policyFingerprint !== identity.policyFingerprint ||
     (identity.agentId === 'claude' && !candidate.sessionId) ||
-    (identity.agentId === 'codex' && !candidate.threadId)
+    (identity.agentId !== 'claude' && !candidate.threadId)
   ) {
     return undefined;
   }
@@ -812,7 +828,7 @@ async function larkCliStatus(ctx: CommandContext): Promise<'app' | 'user-ready' 
 async function handleStatus(_args: string, ctx: CommandContext): Promise<void> {
   const cwd = effectiveWorkspaceCwd(ctx);
   const sess = ctx.sessions.getRaw(ctx.scope);
-  const isCodex = ctx.controls.profileConfig.agentKind === 'codex';
+  const isCodex = ctx.controls.profileConfig.agentKind !== 'claude';
   const catalogEntry =
     isCodex && ctx.sessionCatalog && ctx.sessionCatalogIdentity
       ? ctx.sessionCatalog.activeFor(ctx.sessionCatalogIdentity)
@@ -853,7 +869,15 @@ async function handleStop(args: string, ctx: CommandContext): Promise<void> {
     return;
   }
   const scope = targetScope || ctx.scope;
-  const ok = ctx.activeRuns.interrupt(scope);
+  let ok = ctx.activeRuns.interrupt(scope);
+  if (!ok && scope === ctx.scope && ctx.agent.stopThread && ctx.sessionCatalogIdentity) {
+    const entry = ctx.sessionCatalog?.activeFor(ctx.sessionCatalogIdentity);
+    if (entry?.threadId) {
+      await ctx.agent.stopThread(entry.threadId);
+      ok = true;
+      await reply(ctx, '已请求停止当前 T3 会话。');
+    }
+  }
   log.info('command', 'stop', {
     scope,
     targeted: Boolean(targetScope),
@@ -1127,10 +1151,7 @@ async function handleDoctor(args: string, ctx: CommandContext): Promise<void> {
   }
   doctorLastByOperator.set(rateKey, now);
 
-  const capability =
-    ctx.controls.profileConfig.agentKind === 'codex'
-      ? codexCapability(ctx.controls.profileConfig)
-      : claudeCapability(ctx.controls.profileConfig);
+  const capability = profileCapability(ctx.controls.profileConfig);
   const policy = evaluateRunPolicy({
     scope: {
       source: 'im',

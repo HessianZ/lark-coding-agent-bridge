@@ -123,7 +123,7 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
     if (catalogEntry?.agentId === 'claude') {
       sessionId = catalogEntry.sessionId;
       resumeFrom = sessionId;
-    } else if (catalogEntry?.agentId === 'codex') {
+    } else if (catalogEntry?.agentId === 'codex' || catalogEntry?.agentId === 't3') {
       threadId = catalogEntry.threadId;
       resumeFrom = threadId;
     }
@@ -149,7 +149,7 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
         input.profileConfig.preferences.model,
       ),
       images:
-        input.capability.agentId === 'codex'
+        input.capability.agentId !== 'claude'
           ? policy.attachments
               .filter((attachment) => attachment.kind === 'image' && attachment.decision === 'accepted')
               .map((attachment) => attachment.path)
@@ -200,10 +200,10 @@ export function recordRunSessionEvent(input: RecordRunSessionEventInput): void {
     });
     return;
   }
-  if (input.capability.agentId === 'codex' && input.event.threadId) {
+  if (input.capability.agentId !== 'claude' && input.event.threadId) {
     input.sessionCatalog?.upsertActive({
       scopeId: input.scopeId,
-      agentId: 'codex',
+      agentId: input.capability.agentId,
       cwdRealpath: input.policy.cwdRealpath,
       policyFingerprint: input.policy.policyFingerprint,
       threadId: input.event.threadId,

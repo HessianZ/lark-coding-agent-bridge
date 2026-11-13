@@ -45,6 +45,7 @@ const CODEX_MODELS: ModelOption[] = [
 
 /** The model picker options for a profile's agent kind. */
 export function supportedModels(agentKind: AgentKind): ModelOption[] {
+  if (agentKind === 't3') return [{ value: 'default', label: 'T3 配置模型' }];
   return agentKind === 'codex' ? CODEX_MODELS : CLAUDE_MODELS;
 }
 
